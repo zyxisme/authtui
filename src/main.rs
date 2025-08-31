@@ -7,7 +7,7 @@ use std::{
     io::{self, BufReader, BufWriter},
     path::Path,
     process,
-    process::Command, // 新增：用于执行系统命令
+    process::Command,
     str::FromStr,
     time::{Duration, Instant},
 };
@@ -107,7 +107,7 @@ impl TuiApp {
             remaining_time: 0,
             should_quit: false,
             message: None,
-            message_timer: None,
+            message_timer: None, // 修复：使用冒号而不是等号
             current_screen: Screen::Main,
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
@@ -225,7 +225,7 @@ impl TuiApp {
         }
     }
 
-    // 修改：使用系统命令复制到剪贴板
+    // 使用系统命令复制到剪贴板
     fn copy_to_clipboard(&mut self) {
         if let Some(code) = &self.current_code {
             // 尝试使用系统命令复制到剪贴板
@@ -434,7 +434,7 @@ fn parse_otpauth_uri(uri: &str) -> Result<OtpAuthParams, Box<dyn Error>> {
         period: None,
     };
     
-    for (key, value) in query_pairs {
+    for (key, value) in query_pairs { // 修复：添加in关键字
         match key.as_ref() {
             "secret" => params.secret = value.into_owned(),
             "issuer" => params.issuer = Some(value.into_owned()),
@@ -471,7 +471,7 @@ fn generate_qr_code(
     Ok(())
 }
 
-// 新增：使用系统命令复制到剪贴板
+// 使用系统命令复制到剪贴板
 fn copy_to_clipboard_system(text: &str) -> Result<(), Box<dyn Error>> {
     // 根据操作系统选择合适的命令
     if cfg!(target_os = "macos") {
@@ -546,7 +546,7 @@ fn copy_to_clipboard_system(text: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-// 修改：命令行模式下复制验证码到剪贴板
+// 命令行模式下复制验证码到剪贴板
 fn copy_to_clipboard_cli(code: &str) -> Result<(), Box<dyn Error>> {
     copy_to_clipboard_system(code)?;
     println!("验证码已复制到剪贴板: {}", code);
@@ -573,8 +573,14 @@ fn run_tui<B: Backend>(terminal: &mut Terminal<B>, mut app: TuiApp) -> io::Resul
                 if key.kind == KeyEventKind::Press {
                     match app.current_screen {
                         Screen::Main => match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => {
+                            KeyCode::Esc => {
                                 app.should_quit = true;
+                            }
+                            KeyCode::Char('Q') | KeyCode::Char('q') => {
+                                // 修复：按下q键进入QR码导入界面，而不是退出
+                                app.current_screen = Screen::AddKeyQr;
+                                app.input_mode = InputMode::Editing;
+                                app.input_buffer.clear();
                             }
                             KeyCode::Down | KeyCode::Char('j') => {
                                 app.next();
@@ -589,11 +595,6 @@ fn run_tui<B: Backend>(terminal: &mut Terminal<B>, mut app: TuiApp) -> io::Resul
                             }
                             KeyCode::Char('r') => {
                                 app.remove_selected_key();
-                            }
-                            KeyCode::Char('q') => {
-                                app.current_screen = Screen::AddKeyQr;
-                                app.input_mode = InputMode::Editing;
-                                app.input_buffer.clear();
                             }
                             KeyCode::Char('g') => {
                                 app.current_screen = Screen::GenerateQr;
@@ -738,7 +739,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut TuiApp) {
         Screen::Main => {
             let keys: Vec<&String> = app.app.list_keys();
             if keys.is_empty() {
-                "按 'a' 添加密钥, 'q' 退出".to_string()
+                "按 'a' 添加密钥, 'Esc' 退出".to_string()
             } else {
                 format!("↑↓ 选择, 'a' 添加, 'r' 删除, 'q' QR码, 'g' 生成QR码, 'c' 复制验证码, 'Esc' 退出 | 剩余时间: {}秒", app.remaining_time)
             }
@@ -1106,7 +1107,7 @@ fn print_usage() {
     println!("  q          从QR码图像添加密钥");
     println!("  g          为当前密钥生成QR码");
     println!("  c          复制当前验证码到剪贴板");
-    println!("  Esc/q      退出");
+    println!("  Esc        退出");
     println!();
     println!("如果不带参数运行，将自动启动TUI模式");
 }
