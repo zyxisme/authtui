@@ -24,7 +24,7 @@ Authtui 是一个使用 Rust 编写的 TOTP（基于时间的一次性密码）�
 
 ### AUR（Arch 用户仓库）
 
-如果您使用 Arch Linux 或其衍生发行版，可以通过 AUR 包 [authtui-git](https://aur.archlinux.org/packages/authtui-git)^{AUR}^ 安装：
+如果您使用 Arch Linux 或其衍生发行版，可以通过 AUR 包 [authtui-git](https://aur.archlinux.org/packages/authtui-git) 安装：
 
 ```bash
 yay -S authtui-git
