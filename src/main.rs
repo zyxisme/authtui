@@ -75,6 +75,7 @@ struct TuiApp {
     input_mode: InputMode,
     input_buffer: String,
     last_update: Instant,
+    qr_generate_state: ListState,
 }
 
 /// TUI屏幕状态
@@ -83,7 +84,8 @@ enum Screen {
     Main,
     AddKey,
     AddKeyQr,
-    GenerateQr,
+    GenerateQrSelectKey,
+    GenerateQrInput,
     RemoveKey,
 }
 
@@ -96,8 +98,10 @@ enum InputMode {
 impl TuiApp {
     fn new(app: App) -> Self {
         let mut list_state = ListState::default();
+        let mut qr_generate_state = ListState::default();
         if !app.keys.is_empty() {
             list_state.select(Some(0));
+            qr_generate_state.select(Some(0));
         }
 
         let mut app_instance = Self {
@@ -113,6 +117,7 @@ impl TuiApp {
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
             last_update: Instant::now(),
+            qr_generate_state,
         };
         
         // 初始更新验证码
@@ -252,6 +257,44 @@ impl TuiApp {
             }
             self.update_current_code();
         }
+    }
+    // 新增：QR码生成选择模式下的导航方法
+    fn next_qr_key(&mut self) {
+        let i = match self.qr_generate_state.selected() {
+            Some(i) => {
+                if i >= self.app.keys.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.qr_generate_state.select(Some(i));
+    }
+
+    fn previous_qr_key(&mut self) {
+        let i = match self.qr_generate_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.app.keys.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.qr_generate_state.select(Some(i));
+    }
+
+    // 新增：获取当前选择的密钥名称（用于QR码生成）
+    fn get_selected_qr_key_name(&self) -> Option<String> {
+        if let Some(selected) = self.qr_generate_state.selected() {
+            if let Some((name, _)) = self.app.keys.iter().nth(selected) {
+                return Some(name.clone());
+            }
+        }
+        None
     }
 
     fn remove_selected_key(&mut self) {
@@ -603,17 +646,35 @@ fn run_tui<B: Backend>(terminal: &mut Terminal<B>, mut app: TuiApp) -> io::Resul
                                 app.remove_selected_key();
                             }
                             KeyCode::Char('g') => {
-                                app.current_screen = Screen::GenerateQr;
-                                app.input_mode = InputMode::Editing;
-                                app.input_buffer.clear();
-                            }
-                            KeyCode::Char('c') => {
+                                if app.app.keys.is_empty() {
+                                    app.show_message("没有可用的密钥".to_string(), Duration::from_secs(2));
+                                } else {
+                                    app.current_screen = Screen::GenerateQrSelectKey;
+                                }
+                            }                            KeyCode::Char('c') => {
                                 // 复制验证码到剪贴板
                                 app.copy_to_clipboard();
                             }
                             _ => {}
                         },
-                        Screen::AddKey | Screen::AddKeyQr | Screen::GenerateQr => match key.code {
+                        Screen::GenerateQrSelectKey => match key.code { // 新增
+                            KeyCode::Esc => {
+                                app.current_screen = Screen::Main;
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                app.next_qr_key();
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                app.previous_qr_key();
+                            }
+                            KeyCode::Enter => {
+                                app.current_screen = Screen::GenerateQrInput;
+                                app.input_mode = InputMode::Editing;
+                                app.input_buffer.clear();
+                            }
+                            _ => {}
+                        },
+                        Screen::AddKey | Screen::AddKeyQr | Screen::GenerateQrInput => match key.code {
                             KeyCode::Enter => {
                                 match app.current_screen {
                                     Screen::AddKey => {
@@ -654,29 +715,44 @@ fn run_tui<B: Backend>(terminal: &mut Terminal<B>, mut app: TuiApp) -> io::Resul
                                             app.input_mode = InputMode::Normal;
                                         }
                                     }
-                                    Screen::GenerateQr => {
-                                        let input = app.input_buffer.trim().to_string();
-                                        let parts: Vec<&str> = input.split_whitespace().collect();
-                                        if parts.len() == 3 {
-                                            let name = parts[0];
-                                            let issuer = parts[1];
-                                            let output_path = parts[2];
-                                            
-                                            if let Some(key) = app.app.get_key(name) {
-                                                if let Err(e) = generate_qr_code(&key, name, issuer, output_path) {
-                                                    app.show_message(format!("生成QR码失败: {}", e), Duration::from_secs(3));
-                                                } else {
-                                                    app.show_message("QR码已生成".to_string(), Duration::from_secs(2));
-                                                }
+                        Screen::GenerateQrInput => match key.code { // 修改
+                            KeyCode::Enter => {
+                                let input = app.input_buffer.trim().to_string();
+                                let parts: Vec<&str> = input.split_whitespace().collect();
+                                
+                                if parts.len() == 2 {
+                                    let issuer = parts[0];
+                                    let output_path = parts[1];
+                                    
+                                    if let Some(account) = app.get_selected_qr_key_name() {
+                                        if let Some(key) = app.app.get_key(&account) {
+                                            if let Err(e) = generate_qr_code(&key, &account, issuer, output_path) {
+                                                app.show_message(format!("生成QR码失败: {}", e), Duration::from_secs(3));
                                             } else {
-                                                app.show_message(format!("未找到密钥: {}", name), Duration::from_secs(3));
+                                                app.show_message("QR码已生成".to_string(), Duration::from_secs(2));
                                             }
-                                            app.current_screen = Screen::Main;
-                                            app.input_mode = InputMode::Normal;
                                         } else {
-                                            app.show_message("格式: 名称 发行商 输出路径".to_string(), Duration::from_secs(3));
+                                            app.show_message(format!("未找到密钥: {}", account), Duration::from_secs(3));
                                         }
                                     }
+                                    app.current_screen = Screen::Main;
+                                    app.input_mode = InputMode::Normal;
+                                } else {
+                                    app.show_message("格式: 发行商 输出路径".to_string(), Duration::from_secs(3));
+                                }
+                            }
+                            KeyCode::Esc => {
+                                app.current_screen = Screen::GenerateQrSelectKey;
+                                app.input_mode = InputMode::Normal;
+                            }
+                            KeyCode::Char(c) => {
+                                app.input_buffer.push(c);
+                            }
+                            KeyCode::Backspace => {
+                                app.input_buffer.pop();
+                            }
+                            _ => {}
+                        }
                                     _ => {}
                                 }
                             }
@@ -736,7 +812,8 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut TuiApp) {
         Screen::Main => render_main_screen(f, app, chunks[1]),
         Screen::AddKey => render_input_screen(f, app, chunks[1], "输入新密钥名称:"),
         Screen::AddKeyQr => render_input_screen(f, app, chunks[1], "输入QR码图像路径:"),
-        Screen::GenerateQr => render_input_screen(f, app, chunks[1], "输入: 名称 发行商 输出路径"),
+        Screen::GenerateQrSelectKey => render_qr_key_select_screen(f, app, chunks[1]), 
+        Screen::GenerateQrInput => render_input_screen(f, app, chunks[1], "输入: 名称 发行商 输出路径"),
         _ => render_main_screen(f, app, chunks[1]),
     }
     
@@ -752,7 +829,8 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut TuiApp) {
         }
         Screen::AddKey => "输入密钥名称并按 Enter 确认, Esc 取消".to_string(),
         Screen::AddKeyQr => "输入QR码图像路径并按 Enter 确认, Esc 取消".to_string(),
-        Screen::GenerateQr => "输入: 名称 发行商 输出路径, 按 Enter 确认, Esc 取消".to_string(),
+        Screen::GenerateQrSelectKey => "↑↓ 选择密钥, Enter 确认, Esc 返回".to_string(), 
+        Screen::GenerateQrInput => "输入: 发行商 输出路径, 按 Enter 确认, Esc 取消".to_string(),
         _ => "".to_string(),
     };
     
@@ -1116,4 +1194,35 @@ fn print_usage() {
     println!("  Esc        退出");
     println!();
     println!("如果不带参数运行，将自动启动TUI模式");
+}
+
+// 在文件末尾添加新的渲染函数
+// 新增：渲染QR码密钥选择屏幕
+fn render_qr_key_select_screen<B: Backend>(f: &mut Frame<B>, app: &mut TuiApp, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(3)].as_ref())
+        .split(area);
+    
+    let prompt_paragraph = Paragraph::new("选择要生成QR码的密钥 (按Enter确认)")
+        .style(Style::default().add_modifier(Modifier::BOLD))
+        .alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(prompt_paragraph, chunks[0]);
+    
+    // 密钥列表
+    let keys: Vec<&String> = app.app.list_keys();
+    let items: Vec<ListItem> = keys
+        .iter()
+        .map(|k| {
+            let content = Line::from(Span::raw(*k));
+            ListItem::new(content)
+        })
+        .collect();
+    
+    let list = List::new(items)
+        .block(Block::default().title("密钥列表").borders(Borders::ALL))
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .highlight_symbol(">> ");
+    
+    f.render_stateful_widget(list, chunks[1], &mut app.qr_generate_state);
 }
