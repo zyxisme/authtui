@@ -7,6 +7,7 @@ use std::{
     io::{self, BufReader, BufWriter},
     path::Path,
     process,
+    process::Command, // 新增：用于执行系统命令
     str::FromStr,
     time::{Duration, Instant},
 };
@@ -64,6 +65,7 @@ struct TuiApp {
     app: App,
     list_state: ListState,
     current_code: Option<String>,
+    current_account: Option<String>,
     remaining_time: u64,
     should_quit: bool,
     message: Option<String>,
@@ -71,7 +73,7 @@ struct TuiApp {
     current_screen: Screen,
     input_mode: InputMode,
     input_buffer: String,
-    last_update: Instant, // 添加字段跟踪上次更新时间
+    last_update: Instant,
 }
 
 /// TUI屏幕状态
@@ -101,6 +103,7 @@ impl TuiApp {
             app,
             list_state,
             current_code: None,
+            current_account: None,
             remaining_time: 0,
             should_quit: false,
             message: None,
@@ -108,7 +111,7 @@ impl TuiApp {
             current_screen: Screen::Main,
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
-            last_update: Instant::now(), // 初始化上次更新时间
+            last_update: Instant::now(),
         };
         
         // 初始更新验证码
@@ -149,21 +152,27 @@ impl TuiApp {
     fn update_current_code(&mut self) {
         if let Some(selected) = self.list_state.selected() {
             if let Some((name, _)) = self.app.keys.iter().nth(selected) {
-                if let Some(key) = self.app.get_key(name) {
-                    match calculate_totp(&key, Local::now()) {
-                        Ok(code) => {
-                            self.current_code = Some(code);
-                            self.update_remaining_time();
-                            self.last_update = Instant::now(); // 更新上次更新时间
-                        }
-                        Err(e) => {
-                            self.show_message(format!("错误: {}", e), Duration::from_secs(3));
+                // 只有当选择的账户发生变化时才更新验证码
+                if self.current_account.as_ref() != Some(name) {
+                    self.current_account = Some(name.clone());
+                    if let Some(key) = self.app.get_key(name) {
+                        match calculate_totp(&key, Local::now()) {
+                            Ok(code) => {
+                                self.current_code = Some(code);
+                                self.update_remaining_time();
+                                self.last_update = Instant::now();
+                            }
+                            Err(e) => {
+                                self.show_message(format!("错误: {}", e), Duration::from_secs(3));
+                                self.current_code = None;
+                            }
                         }
                     }
                 }
             }
         } else {
             self.current_code = None;
+            self.current_account = None;
         }
     }
 
@@ -198,10 +207,35 @@ impl TuiApp {
             
             // 如果剩余时间重置（从1跳到30），说明时间步长已变化，需要更新验证码
             if self.remaining_time == 30 {
-                self.update_current_code();
+                if let Some(account) = &self.current_account {
+                    if let Some(key) = self.app.get_key(account) {
+                        match calculate_totp(&key, Local::now()) {
+                            Ok(code) => {
+                                self.current_code = Some(code);
+                                self.last_update = Instant::now();
+                            }
+                            Err(e) => {
+                                self.show_message(format!("错误: {}", e), Duration::from_secs(3));
+                                self.current_code = None;
+                            }
+                        }
+                    }
+                }
             }
-            
-            self.last_update = Instant::now();
+        }
+    }
+
+    // 修改：使用系统命令复制到剪贴板
+    fn copy_to_clipboard(&mut self) {
+        if let Some(code) = &self.current_code {
+            // 尝试使用系统命令复制到剪贴板
+            if let Err(e) = copy_to_clipboard_system(&code) {
+                self.show_message(format!("复制失败: {}", e), Duration::from_secs(3));
+            } else {
+                self.show_message("验证码已复制到剪贴板".to_string(), Duration::from_secs(2));
+            }
+        } else {
+            self.show_message("没有可复制的验证码".to_string(), Duration::from_secs(2));
         }
     }
 
@@ -233,6 +267,7 @@ impl TuiApp {
                         if self.app.keys.is_empty() {
                             self.list_state.select(None);
                             self.current_code = None;
+                            self.current_account = None;
                         } else if selected >= self.app.keys.len() {
                             self.list_state.select(Some(self.app.keys.len() - 1));
                         }
@@ -436,9 +471,91 @@ fn generate_qr_code(
     Ok(())
 }
 
+// 新增：使用系统命令复制到剪贴板
+fn copy_to_clipboard_system(text: &str) -> Result<(), Box<dyn Error>> {
+    // 根据操作系统选择合适的命令
+    if cfg!(target_os = "macos") {
+        // macOS
+        let mut cmd = Command::new("pbcopy");
+        cmd.stdin(std::process::Stdio::piped());
+        let mut child = cmd.spawn()?;
+        {
+            let stdin = child.stdin.as_mut().ok_or("Failed to open stdin")?;
+            use std::io::Write;
+            stdin.write_all(text.as_bytes())?;
+        }
+        child.wait()?;
+    } else if cfg!(target_os = "windows") {
+        // Windows
+        let mut cmd = Command::new("clip");
+        cmd.stdin(std::process::Stdio::piped());
+        let mut child = cmd.spawn()?;
+        {
+            let stdin = child.stdin.as_mut().ok_or("Failed to open stdin")?;
+            use std::io::Write;
+            stdin.write_all(text.as_bytes())?;
+        }
+        child.wait()?;
+    } else {
+        // Linux 和其他类Unix系统
+        // 尝试使用xclip
+        if Command::new("xclip").arg("-version").output().is_ok() {
+            let mut cmd = Command::new("xclip");
+            cmd.arg("-selection").arg("clipboard");
+            cmd.arg("-i");
+            cmd.stdin(std::process::Stdio::piped());
+            let mut child = cmd.spawn()?;
+            {
+                let stdin = child.stdin.as_mut().ok_or("Failed to open stdin")?;
+                use std::io::Write;
+                stdin.write_all(text.as_bytes())?;
+            }
+            child.wait()?;
+        }
+        // 尝试使用xsel
+        else if Command::new("xsel").arg("--version").output().is_ok() {
+            let mut cmd = Command::new("xsel");
+            cmd.arg("--clipboard");
+            cmd.arg("--input");
+            cmd.stdin(std::process::Stdio::piped());
+            let mut child = cmd.spawn()?;
+            {
+                let stdin = child.stdin.as_mut().ok_or("Failed to open stdin")?;
+                use std::io::Write;
+                stdin.write_all(text.as_bytes())?;
+            }
+            child.wait()?;
+        }
+        // 尝试使用wl-copy (Wayland)
+        else if Command::new("wl-copy").arg("--version").output().is_ok() {
+            let mut cmd = Command::new("wl-copy");
+            cmd.stdin(std::process::Stdio::piped());
+            let mut child = cmd.spawn()?;
+            {
+                let stdin = child.stdin.as_mut().ok_or("Failed to open stdin")?;
+                use std::io::Write;
+                stdin.write_all(text.as_bytes())?;
+            }
+            child.wait()?;
+        }
+        else {
+            return Err("没有可用的剪贴板工具。请安装 xclip, xsel 或 wl-copy".into());
+        }
+    }
+    
+    Ok(())
+}
+
+// 修改：命令行模式下复制验证码到剪贴板
+fn copy_to_clipboard_cli(code: &str) -> Result<(), Box<dyn Error>> {
+    copy_to_clipboard_system(code)?;
+    println!("验证码已复制到剪贴板: {}", code);
+    Ok(())
+}
+
 fn run_tui<B: Backend>(terminal: &mut Terminal<B>, mut app: TuiApp) -> io::Result<()> {
     let mut last_tick = Instant::now();
-    let tick_rate = Duration::from_millis(100); // 提高刷新频率到10次/秒
+    let tick_rate = Duration::from_millis(100);
     
     loop {
         terminal.draw(|f| {
@@ -482,6 +599,10 @@ fn run_tui<B: Backend>(terminal: &mut Terminal<B>, mut app: TuiApp) -> io::Resul
                                 app.current_screen = Screen::GenerateQr;
                                 app.input_mode = InputMode::Editing;
                                 app.input_buffer.clear();
+                            }
+                            KeyCode::Char('c') => {
+                                // 复制验证码到剪贴板
+                                app.copy_to_clipboard();
                             }
                             _ => {}
                         },
@@ -619,7 +740,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut TuiApp) {
             if keys.is_empty() {
                 "按 'a' 添加密钥, 'q' 退出".to_string()
             } else {
-                format!("↑↓ 选择, 'a' 添加, 'r' 删除, 'q' QR码, 'g' 生成QR码, 'Esc' 退出 | 剩余时间: {}秒", app.remaining_time)
+                format!("↑↓ 选择, 'a' 添加, 'r' 删除, 'q' QR码, 'g' 生成QR码, 'c' 复制验证码, 'Esc' 退出 | 剩余时间: {}秒", app.remaining_time)
             }
         }
         Screen::AddKey => "输入密钥名称并按 Enter 确认, Esc 取消".to_string(),
@@ -847,6 +968,11 @@ fn run_cli_mode() -> Result<(), Box<dyn Error>> {
             if let Some(key) = app.get_key(name) {
                 let code = calculate_totp(&key, Local::now())?;
                 println!("{} 的验证码: {}", name, code);
+                
+                // 命令行模式下也支持复制到剪贴板
+                if args.len() > 3 && args[3] == "--copy" {
+                    copy_to_clipboard_cli(&code)?;
+                }
             } else {
                 eprintln!("未找到 '{}' 的密钥", name);
                 process::exit(1);
@@ -966,12 +1092,21 @@ fn print_usage() {
     println!("  add <名称>             添加新密钥");
     println!("  add-qr <二维码路径>     从QR码图像添加密钥");
     println!("  generate-qr <名称> <发行商> <输出路径> 为现有密钥生成QR码");
-    println!("  get <名称>             获取当前TOTP码");
+    println!("  get <名称> [--copy]    获取当前TOTP码（可选复制到剪贴板）");
     println!("  list                   列出所有存储的密钥");
     println!("  remove <名称>          删除密钥");
     println!("  time-window            显示当前时间窗口信息");
     println!("  generate-codes <名称>  生成当前时间窗口及其前后窗口的TOTP码");
     println!("  tui                    启动文本用户界面(TUI)模式");
+    println!();
+    println!("TUI模式快捷键:");
+    println!("  ↑/k, ↓/j   上下选择账户");
+    println!("  a          添加新密钥");
+    println!("  r          删除当前密钥");
+    println!("  q          从QR码图像添加密钥");
+    println!("  g          为当前密钥生成QR码");
+    println!("  c          复制当前验证码到剪贴板");
+    println!("  Esc/q      退出");
     println!();
     println!("如果不带参数运行，将自动启动TUI模式");
 }
