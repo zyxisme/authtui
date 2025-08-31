@@ -17,3 +17,5 @@ quircs = "0.10"          # QR码解码
 url = "2.2"             # URL解析
 hmac = "0.12"
 sha1 = "0.10"
+crossterm = "0.27"      # 终端操作
+ratatui = "0.23"        # TUI界面
