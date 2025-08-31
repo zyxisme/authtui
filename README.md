@@ -4,7 +4,7 @@
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Release](https://img.shields.io/badge/Release-1.0.0-blue)
 
-Authtui 是一个使用 Rust 编写的 TOTP（基于时间的一次性密码）认证管理器，提供命令行（CLI）和文本用户界面（TUI）两种操作方式，帮助您安全且高效地管理双重认证令牌。
+Authtui 是一个使用 Rust 编写的 TOTP（基于时间的一次性密码）认证管理器，提供命令行（CLI）和文本用户界面（TUI）两种操作方式，帮助您安全且高效地管理您的双重认证密钥。
 
 ---
 
@@ -16,11 +16,21 @@ Authtui 是一个使用 Rust 编写的 TOTP（基于时间的一次性密码）�
 - 🖨️ **二维码生成**：为现有密钥生成 QR 码
 - 📋 **便捷复制**：一键复制验证码到剪贴板
 - ⏰ **实时显示**：展示验证码剩余有效时间
-- 🔧 **跨平台**：兼容 Windows、macOS、Linux
+- 🔧 **跨平台**：兼容 ~~Windows~~、macOS、Linux
 
 ---
 
 ## 安装方法
+
+### AUR（Arch 用户仓库）
+
+如果您使用 Arch Linux 或其衍生发行版，可以通过 AUR 包 [authtui-git](https://aur.archlinux.org/packages/authtui-git) 安装：
+
+```bash
+yay -S authtui-git
+# 或使用其他 AUR 助手
+paru -S authtui-git
+```
 
 ### 预编译版本
 
