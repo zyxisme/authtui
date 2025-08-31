@@ -10,6 +10,7 @@ use std::{
     process::Command,
     str::FromStr,
     time::{Duration, Instant},
+    path::PathBuf
 };
 
 // 导入第三方库
@@ -312,8 +313,13 @@ impl App {
     }
 
     fn get_path() -> Result<std::path::PathBuf, Box<dyn Error>> {
-        let mut path = env::current_exe()?;
-        path.pop();
+        let home_dir = env::var("HOME")?;
+        let mut path = PathBuf::from(home_dir);
+        path.push(".config");
+        path.push("authtui");
+        if !path.exists() {
+            std::fs::create_dir_all(&path)?;
+        }
         path.push("config.json");
         Ok(path)
     }
