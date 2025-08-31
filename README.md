@@ -1,10 +1,10 @@
-# Auther - TOTP 认证管理器
+# Authtui - TOTP 认证管理器
 
 ![Rust](https://img.shields.io/badge/Rust-1.60%2B-orange?logo=rust)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Release](https://img.shields.io/badge/Release-1.0.0-blue)
 
-Auther 是一个使用 Rust 编写的 TOTP（基于时间的一次性密码）认证管理器，提供命令行（CLI）和文本用户界面（TUI）两种操作方式，帮助您安全且高效地管理双重认证令牌。
+Authtui 是一个使用 Rust 编写的 TOTP（基于时间的一次性密码）认证管理器，提供命令行（CLI）和文本用户界面（TUI）两种操作方式，帮助您安全且高效地管理双重认证令牌。
 
 ---
 
@@ -24,7 +24,7 @@ Auther 是一个使用 Rust 编写的 TOTP（基于时间的一次性密码）�
 
 ### 预编译版本
 
-1. 前往 [Release 页面](https://github.com/yourusername/auther/releases)
+1. 前往 [Release 页面](https://github.com/yourusername/authtui/releases)
 2. 下载适合您操作系统的最新版本
 3. 解压文件，将可执行文件添加到系统 `PATH`
 
