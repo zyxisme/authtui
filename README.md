@@ -34,7 +34,7 @@ paru -S authtui-git
 
 ### 预编译版本
 
-1. 前往 [Release 页面](https://github.com/yourusername/authtui/releases)
+1. 前往 [Release 页面](https://github.com/d117u/authtui/releases)
 2. 下载适合您操作系统的最新版本
 3. 解压文件，将可执行文件添加到系统 `PATH`
 
